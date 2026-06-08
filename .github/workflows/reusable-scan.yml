@@ -1,0 +1,151 @@
+name: SecureGate Security Scan
+
+# This is a reusable workflow — customers reference it from their repo
+# uses: your-org/securegateway/.github/workflows/reusable-scan.yml@main
+
+on:
+  workflow_call:
+    inputs:
+      ecr-repo:
+        description: ECR repository URI for client scan images
+        required: true
+        type: string
+    secrets:
+      api-gateway-url:
+        description: SecureGate API Gateway URL
+        required: true
+      api-key:
+        description: SecureGate API key
+        required: true
+      aws-access-key:
+        description: AWS access key ID for ECR push
+        required: true
+      aws-secret-key:
+        description: AWS secret access key for ECR push
+        required: true
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout customer code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key }}
+          aws-secret-access-key: ${{ secrets.aws-secret-key }}
+          aws-region: us-east-1
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Validate .securegateway.yml exists
+        run: |
+          if [ ! -f .securegateway.yml ]; then
+            echo "ERROR: .securegateway.yml not found in repo root"
+            echo "Please add a .securegateway.yml config file"
+            echo "See: https://github.com/your-org/securegateway#step-3--add-the-config-file"
+            exit 1
+          fi
+          echo "Config file found"
+
+      - name: Fire warmup in background
+        run: |
+          curl -s -X POST "${{ secrets.api-gateway-url }}/warmup" \
+            -H "x-api-key: ${{ secrets.api-key }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"commitSha\": \"${{ github.sha }}\"}" &
+          echo "Warmup fired — Fargate workers booting in background"
+
+      - name: Docker build
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: false
+          tags: ${{ inputs.ecr-repo }}/client-scans:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Docker push to ECR
+        run: |
+          docker push ${{ inputs.ecr-repo }}/client-scans:${{ github.sha }}
+          echo "Image pushed — ECR confirmed availability"
+
+      - name: Trigger scan
+        id: trigger
+        run: |
+          RESPONSE=$(curl -s -X POST "${{ secrets.api-gateway-url }}/scan" \
+            -H "x-api-key: ${{ secrets.api-key }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"imageURI\": \"${{ inputs.ecr-repo }}/client-scans:${{ github.sha }}\",
+              \"commitSha\": \"${{ github.sha }}\",
+              \"prNumber\": \"${{ github.event.pull_request.number }}\",
+              \"repoFullName\": \"${{ github.repository }}\",
+              \"githubToken\": \"${{ github.token }}\"
+            }")
+
+          echo "Response: $RESPONSE"
+          SCAN_ID=$(echo $RESPONSE | jq -r '.scanId // empty')
+
+          if [ -z "$SCAN_ID" ]; then
+            echo "ERROR: No scanId returned — check API Gateway logs"
+            exit 1
+          fi
+
+          echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
+          echo "Scan triggered with ID: $SCAN_ID"
+
+      - name: Poll for results
+        run: |
+          echo "Polling for scan results (max 10 minutes)..."
+          for i in $(seq 1 60); do
+            STATUS=$(aws dynamodb get-item \
+              --table-name securegateway-scans \
+              --key "{\"scanId\": {\"S\": \"$SCAN_ID\"}}" \
+              --query 'Item.status.S' \
+              --output text 2>/dev/null || echo "PENDING")
+
+            echo "T+${i}0s: $STATUS"
+
+            if [ "$STATUS" = "complete" ] || [ "$STATUS" = "failed" ]; then
+              echo "Scan finished with status: $STATUS"
+              break
+            fi
+
+            if [ "$i" -eq 60 ]; then
+              echo "Timeout — scan took longer than 10 minutes"
+              exit 1
+            fi
+
+            sleep 10
+          done
+
+      - name: Check result and exit
+        run: |
+          RESULT=$(aws dynamodb get-item \
+            --table-name securegateway-scans \
+            --key "{\"scanId\": {\"S\": \"$SCAN_ID\"}}" \
+            --query 'Item.overall_status.S' \
+            --output text 2>/dev/null || echo "UNKNOWN")
+
+          HIGH_COUNT=$(aws dynamodb get-item \
+            --table-name securegateway-scans \
+            --key "{\"scanId\": {\"S\": \"$SCAN_ID\"}}" \
+            --query 'Item.high_count.N' \
+            --output text 2>/dev/null || echo "0")
+
+          echo "Overall status: $RESULT"
+          echo "HIGH findings: $HIGH_COUNT"
+          echo "Full report available on the PR comment"
+
+          if [ "$RESULT" = "FAIL" ]; then
+            echo "Security scan FAILED — merge blocked"
+            exit 1
+          fi
+
+          echo "Security scan PASSED"
