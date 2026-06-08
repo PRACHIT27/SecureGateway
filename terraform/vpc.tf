@@ -135,7 +135,7 @@ resource "aws_vpc_endpoint" "logs" {
 # Fargate tasks — private subnet, internal traffic only
 resource "aws_security_group" "fargate" {
   name        = "${var.project_name}-fargate-sg"
-  description = "Fargate tasks — internal VPC traffic only, no internet egress"
+  description = "Fargate tasks - internal VPC traffic only, no internet egress"
   vpc_id      = aws_vpc.main.id
 
   # allow inbound from within VPC (pentest → target container)

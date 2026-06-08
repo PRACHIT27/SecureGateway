@@ -44,8 +44,8 @@ resource "aws_ecs_task_definition" "sast_worker" {
   network_mode             = "awsvpc"
   cpu                      = var.fargate_cpu_sast
   memory                   = var.fargate_memory_sast
-  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
-  task_role_arn            = aws_iam_role.sast_task.arn
+  execution_role_arn       = data.aws_iam_role.lab_role.arn
+  task_role_arn            = data.aws_iam_role.lab_role.arn
 
   container_definitions = jsonencode([{
     name      = "sast-worker"
@@ -79,9 +79,8 @@ resource "aws_ecs_task_definition" "pentest_worker" {
   network_mode             = "awsvpc"
   cpu                      = var.fargate_cpu_pentest
   memory                   = var.fargate_memory_pentest
-  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
-  task_role_arn            = aws_iam_role.pentest_task.arn
-
+  execution_role_arn       = data.aws_iam_role.lab_role.arn
+  task_role_arn            = data.aws_iam_role.lab_role.arn
   container_definitions = jsonencode([{
     name      = "pentest-worker"
     image     = "${aws_ecr_repository.pentest_worker.repository_url}:latest"

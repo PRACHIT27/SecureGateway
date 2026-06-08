@@ -21,17 +21,19 @@ resource "aws_s3_bucket_lifecycle_configuration" "reports" {
   bucket = aws_s3_bucket.reports.id
 
   rule {
-    id     = "expire-old-reports"
-    status = "Enabled"
+  id     = "expire-old-reports"
+  status = "Enabled"
 
-    expiration {
-      days = var.report_retention_days
-    }
+  filter {} 
 
-    noncurrent_version_expiration {
-      noncurrent_days = 1
-    }
+  expiration {
+    days = var.report_retention_days
   }
+
+  noncurrent_version_expiration {
+    noncurrent_days = 1
+  }
+}
 }
 
 # Versioning off — reports are write-once, no need for versions

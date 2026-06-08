@@ -1,6 +1,4 @@
 # ── LAMBDA PLACEHOLDER ZIP ───────────────────────────────────────
-# Placeholder zip for initial deploy — Parishi will replace with real code
-# Terraform requires a deployment package to create the Lambda function
 
 data "archive_file" "placeholder" {
   type        = "zip"
@@ -16,7 +14,7 @@ data "archive_file" "placeholder" {
 
 resource "aws_lambda_function" "trigger" {
   function_name = "${var.project_name}-trigger"
-  role          = aws_iam_role.lambda.arn
+  role          = data.aws_iam_role.lab_role.arn
   handler       = "index.handler"
   runtime       = "nodejs18.x"
   timeout       = 30
@@ -52,7 +50,7 @@ resource "aws_cloudwatch_log_group" "lambda_trigger" {
 
 resource "aws_lambda_function" "severity_check" {
   function_name = "${var.project_name}-severity-check"
-  role          = aws_iam_role.lambda.arn
+  role          = data.aws_iam_role.lab_role.arn
   handler       = "index.handler"
   runtime       = "nodejs18.x"
   timeout       = 30
@@ -78,7 +76,6 @@ resource "aws_cloudwatch_log_group" "lambda_severity" {
   retention_in_days = 7
 }
 
-# DynamoDB stream → Severity Check Lambda
 resource "aws_lambda_event_source_mapping" "severity_check" {
   event_source_arn  = aws_dynamodb_table.scans.stream_arn
   function_name     = aws_lambda_function.severity_check.arn
@@ -87,7 +84,6 @@ resource "aws_lambda_event_source_mapping" "severity_check" {
 
   filter_criteria {
     filter {
-      # Only trigger when SAST scan completes
       pattern = jsonencode({
         dynamodb = {
           NewImage = {
@@ -103,7 +99,7 @@ resource "aws_lambda_event_source_mapping" "severity_check" {
 
 resource "aws_lambda_function" "results" {
   function_name = "${var.project_name}-results"
-  role          = aws_iam_role.lambda.arn
+  role          = data.aws_iam_role.lab_role.arn
   handler       = "index.handler"
   runtime       = "nodejs18.x"
   timeout       = 30
@@ -128,7 +124,6 @@ resource "aws_cloudwatch_log_group" "lambda_results" {
   retention_in_days = 7
 }
 
-# DynamoDB stream → Results Lambda
 resource "aws_lambda_event_source_mapping" "results" {
   event_source_arn  = aws_dynamodb_table.scans.stream_arn
   function_name     = aws_lambda_function.results.arn
@@ -137,7 +132,6 @@ resource "aws_lambda_event_source_mapping" "results" {
 
   filter_criteria {
     filter {
-      # Only trigger when both scans complete
       pattern = jsonencode({
         dynamodb = {
           NewImage = {

@@ -62,13 +62,12 @@ resource "aws_ecr_lifecycle_policy" "client_scans" {
   policy = jsonencode({
     rules = [{
       rulePriority = 1
-      description  = "Expire client scan images after 1 day"
+      description  = "Expire untagged client scan images after 1 day"
       selection = {
-        tagStatus     = "tagged"
-        tagPrefixList = [""]
-        countType     = "sinceImagePushed"
-        countUnit     = "days"
-        countNumber   = 1
+        tagStatus   = "untagged"
+        countType   = "sinceImagePushed"
+        countUnit   = "days"
+        countNumber = 1
       }
       action = { type = "expire" }
     }]
