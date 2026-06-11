@@ -43,6 +43,7 @@ jobs:
           terraform import aws_secretsmanager_secret.github_token securegateway-github-token || true
           terraform import aws_cloudwatch_log_group.sast /ecs/securegateway/sast-worker || true
           terraform import aws_cloudwatch_log_group.pentest /ecs/securegateway/pentest-worker || true
+          terraform destroy -auto-approve || true
 
       - name: Terraform Apply
         run: cd terraform && terraform apply -auto-approve
