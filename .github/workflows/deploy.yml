@@ -31,6 +31,19 @@ jobs:
       - name: Terraform Init
         run: cd terraform && terraform init
 
+      - name: Import existing resources
+        run: |
+          cd terraform
+          terraform import aws_dynamodb_table.scans securegateway-scans || true
+          terraform import aws_dynamodb_table.config securegateway-config || true
+          terraform import aws_ecr_repository.sast_scanner securegateway/sast-scanner || true
+          terraform import aws_ecr_repository.pentest_worker securegateway/pentest-worker || true
+          terraform import aws_ecr_repository.client_scans securegateway/client-scans || true
+          terraform import aws_s3_bucket.reports securegateway-reports-547846986520 || true
+          terraform import aws_secretsmanager_secret.github_token securegateway-github-token || true
+          terraform import aws_cloudwatch_log_group.sast /ecs/securegateway/sast-worker || true
+          terraform import aws_cloudwatch_log_group.pentest /ecs/securegateway/pentest-worker || true
+
       - name: Terraform Apply
         run: cd terraform && terraform apply -auto-approve
 
