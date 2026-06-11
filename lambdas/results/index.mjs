@@ -108,7 +108,7 @@ export const handler = async (event) => {
     const newImage = unmarshall(record.dynamodb.NewImage);
     const { scanId, status, repo, prNumber } = newImage;
 
-    if (status !== 'complete' && status !== 'fast_block') continue;
+    if (overall_status !== 'complete' && overall_status !== 'failed' && status !== 'complete' && status !== 'fast_block') continue;
 
     console.log(`Processing results for scan ${scanId}`);
 
