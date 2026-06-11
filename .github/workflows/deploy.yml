@@ -45,7 +45,7 @@ jobs:
         run: |
           aws secretsmanager put-secret-value \
             --secret-id securegateway-github-token \
-            --secret-string "${{ secrets.GITHUB_TOKEN_SECRET }}"
+            --secret-string "${{ secrets.GH_SECRET }}"
 
   deploy-lambdas:
     needs: deploy-infrastructure
