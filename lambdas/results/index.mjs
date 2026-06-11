@@ -1,5 +1,5 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
@@ -106,9 +106,11 @@ export const handler = async (event) => {
     if (record.eventName !== 'MODIFY') continue;
 
     const newImage = unmarshall(record.dynamodb.NewImage);
-    const { scanId, status, repo, prNumber } = newImage;
+    const { scanId, overall_status, status, repo, prNumber } = newImage;
 
-    if (overall_status !== 'complete' && overall_status !== 'failed' && status !== 'complete' && status !== 'fast_block') continue;
+    // Trigger on either overall_status or status field
+    if (overall_status !== 'complete' && overall_status !== 'failed' &&
+        status !== 'complete' && status !== 'fast_block') continue;
 
     console.log(`Processing results for scan ${scanId}`);
 
@@ -140,6 +142,16 @@ export const handler = async (event) => {
         ? `${newImage.highCount || 0} HIGH findings — merge blocked`
         : 'All security checks passed'
     );
+
+    // Update overall_status in DynamoDB
+    await dynamo.send(new UpdateCommand({
+      TableName: process.env.DYNAMODB_TABLE,
+      Key: { scanId },
+      UpdateExpression: 'SET overall_status = :os',
+      ExpressionAttributeValues: {
+        ':os': blocked ? 'failed' : 'complete'
+      }
+    }));
 
     console.log(`Posted PR comment and status check for scan ${scanId}`);
   }
