@@ -87,7 +87,7 @@ resource "aws_lambda_event_source_mapping" "severity_check" {
       pattern = jsonencode({
         dynamodb = {
           NewImage = {
-            sast_status = { S = ["complete"] }
+            status = { S = ["complete"] }
           }
         }
       })
@@ -113,6 +113,7 @@ resource "aws_lambda_function" "results" {
       DYNAMODB_TABLE = aws_dynamodb_table.scans.name
       S3_BUCKET      = aws_s3_bucket.reports.bucket
       SNS_TOPIC_ARN  = aws_sns_topic.alerts.arn
+      GITHUB_SECRET_ARN = aws_secretsmanager_secret.github_token.arn
     }
   }
 
