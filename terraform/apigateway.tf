@@ -22,9 +22,10 @@ resource "aws_api_gateway_usage_plan" "main" {
     stage  = aws_api_gateway_stage.main.stage_name
   }
 
+  # Issue #7: Use configurable rate limits from variables
   throttle_settings {
-    rate_limit  = 100
-    burst_limit = 50
+    rate_limit  = var.api_gateway_rate_limit
+    burst_limit = var.api_gateway_burst_limit
   }
 }
 
