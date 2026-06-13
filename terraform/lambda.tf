@@ -23,6 +23,9 @@ resource "aws_lambda_function" "trigger" {
   filename         = data.archive_file.placeholder.output_path
   source_code_hash = data.archive_file.placeholder.output_base64sha256
 
+  # Fix 9: Add reserved concurrency to prevent runaway scaling
+  reserved_concurrent_executions = 10
+
   environment {
     variables = {
       SAST_QUEUE_URL    = aws_sqs_queue.sast_queue.url
@@ -58,6 +61,9 @@ resource "aws_lambda_function" "severity_check" {
 
   filename         = data.archive_file.placeholder.output_path
   source_code_hash = data.archive_file.placeholder.output_base64sha256
+
+  # Fix 9: Add reserved concurrency to prevent runaway scaling
+  reserved_concurrent_executions = 10
 
   environment {
     variables = {
@@ -107,6 +113,9 @@ resource "aws_lambda_function" "results" {
 
   filename         = data.archive_file.placeholder.output_path
   source_code_hash = data.archive_file.placeholder.output_base64sha256
+
+  # Fix 9: Add reserved concurrency to prevent runaway scaling
+  reserved_concurrent_executions = 10
 
   environment {
     variables = {
