@@ -10,6 +10,15 @@ data "archive_file" "placeholder" {
   }
 }
 
+# ── DEAD LETTER QUEUES FOR LAMBDAS ────────────────────────────────
+
+resource "aws_sqs_queue" "lambda_dlq" {
+  name                      = "${var.project_name}-lambda-dlq"
+  message_retention_seconds = 1209600 # 14 days
+
+  tags = { Name = "Lambda DLQ" }
+}
+
 # ── TRIGGER LAMBDA (Lambda 1) ─────────────────────────────────────
 
 resource "aws_lambda_function" "trigger" {
@@ -18,13 +27,15 @@ resource "aws_lambda_function" "trigger" {
   handler       = "index.handler"
   runtime       = "nodejs18.x"
   timeout       = 30
-  memory_size   = 256
+  memory_size   = 128  # Issue #11: Optimized from 256 (only parses JSON)
 
   filename         = data.archive_file.placeholder.output_path
   source_code_hash = data.archive_file.placeholder.output_base64sha256
 
-  # Fix 9: Add reserved concurrency to prevent runaway scaling
   reserved_concurrent_executions = 10
+  dead_letter_config {
+    target_arn = aws_sqs_queue.lambda_dlq.arn  # Issue #5: DLQ for failed invocations
+  }
 
   environment {
     variables = {
@@ -46,7 +57,7 @@ resource "aws_lambda_function" "trigger" {
 
 resource "aws_cloudwatch_log_group" "lambda_trigger" {
   name              = "/aws/lambda/${aws_lambda_function.trigger.function_name}"
-  retention_in_days = 7
+  retention_in_days = var.cloudwatch_logs_retention_days  # Issue #3: Use variable (30 days default)
 }
 
 # ── SEVERITY CHECK LAMBDA ─────────────────────────────────────────
@@ -62,8 +73,10 @@ resource "aws_lambda_function" "severity_check" {
   filename         = data.archive_file.placeholder.output_path
   source_code_hash = data.archive_file.placeholder.output_base64sha256
 
-  # Fix 9: Add reserved concurrency to prevent runaway scaling
   reserved_concurrent_executions = 10
+  dead_letter_config {
+    target_arn = aws_sqs_queue.lambda_dlq.arn  # Issue #5: DLQ for failed invocations
+  }
 
   environment {
     variables = {
@@ -79,7 +92,7 @@ resource "aws_lambda_function" "severity_check" {
 
 resource "aws_cloudwatch_log_group" "lambda_severity" {
   name              = "/aws/lambda/${aws_lambda_function.severity_check.function_name}"
-  retention_in_days = 7
+  retention_in_days = var.cloudwatch_logs_retention_days  # Issue #3: Use variable (30 days default)
 }
 
 resource "aws_lambda_event_source_mapping" "severity_check" {
@@ -109,13 +122,15 @@ resource "aws_lambda_function" "results" {
   handler       = "index.handler"
   runtime       = "nodejs18.x"
   timeout       = 30
-  memory_size   = 256
+  memory_size   = 512  # Issue #11: Optimized from 256 (handles GitHub API + S3 + Secrets Mgr)
 
   filename         = data.archive_file.placeholder.output_path
   source_code_hash = data.archive_file.placeholder.output_base64sha256
 
-  # Fix 9: Add reserved concurrency to prevent runaway scaling
   reserved_concurrent_executions = 10
+  dead_letter_config {
+    target_arn = aws_sqs_queue.lambda_dlq.arn  # Issue #5: DLQ for failed invocations
+  }
 
   environment {
     variables = {
@@ -131,7 +146,7 @@ resource "aws_lambda_function" "results" {
 
 resource "aws_cloudwatch_log_group" "lambda_results" {
   name              = "/aws/lambda/${aws_lambda_function.results.function_name}"
-  retention_in_days = 7
+  retention_in_days = var.cloudwatch_logs_retention_days  # Issue #3: Use variable (30 days default)
 }
 
 resource "aws_lambda_event_source_mapping" "results" {
@@ -150,5 +165,60 @@ resource "aws_lambda_event_source_mapping" "results" {
         }
       })
     }
+  }
+}
+
+# ── CLOUDWATCH ALARMS FOR LAMBDA THROTTLING ───────────────────────
+
+resource "aws_cloudwatch_metric_alarm" "lambda_trigger_throttles" {
+  alarm_name          = "${var.project_name}-lambda-trigger-throttles"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "Throttles"
+  namespace           = "AWS/Lambda"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 1
+  alarm_description   = "Trigger Lambda is being throttled due to concurrency limits"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+
+  dimensions = {
+    FunctionName = aws_lambda_function.trigger.function_name
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "lambda_results_throttles" {
+  alarm_name          = "${var.project_name}-lambda-results-throttles"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "Throttles"
+  namespace           = "AWS/Lambda"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 1
+  alarm_description   = "Results Lambda is being throttled due to concurrency limits"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+
+  dimensions = {
+    FunctionName = aws_lambda_function.results.function_name
+  }
+}
+
+# ── CLOUDWATCH ALARM FOR DLQ MESSAGES ──────────────────────────────
+
+resource "aws_cloudwatch_metric_alarm" "lambda_dlq_not_empty" {
+  alarm_name          = "${var.project_name}-lambda-dlq-not-empty"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  namespace           = "AWS/SQS"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 0
+  alarm_description   = "Lambda DLQ has messages — invocations are failing"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+
+  dimensions = {
+    QueueName = aws_sqs_queue.lambda_dlq.name
   }
 }
