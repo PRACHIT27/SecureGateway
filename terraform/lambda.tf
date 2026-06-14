@@ -106,7 +106,7 @@ resource "aws_lambda_event_source_mapping" "severity_check" {
       pattern = jsonencode({
         dynamodb = {
           NewImage = {
-            status = { S = ["complete"] }
+            status = { S = ["sast_complete"] }
           }
         }
       })
