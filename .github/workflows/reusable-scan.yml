@@ -108,13 +108,13 @@ jobs:
           for i in $(seq 1 60); do
             STATUS=$(aws dynamodb get-item \
               --table-name securegateway-scans \
-              --key "{\"scanId\": {\"S\": \"$SCAN_ID\"}}" \
-              --query 'Item.overall_status.S' \         
+              --key "{\"scanId\":{\"S\":\"$SCAN_ID\"}}" \
+              --query 'Item.overall_status.S' \
               --output text 2>/dev/null || echo "PENDING")
 
             echo "T+${i}0s: $STATUS"
 
-            if [ "$STATUS" = "complete" ] || [ "$STATUS" = "failed" ]; then 
+            if [ "$STATUS" = "complete" ] || [ "$STATUS" = "failed" ]; then
               echo "Scan finished with status: $STATUS"
               break
             fi
@@ -131,21 +131,20 @@ jobs:
         run: |
           RESULT=$(aws dynamodb get-item \
             --table-name securegateway-scans \
-            --key "{\"scanId\": {\"S\": \"$SCAN_ID\"}}" \
+            --key "{\"scanId\":{\"S\":\"$SCAN_ID\"}}" \
             --query 'Item.overall_status.S' \
             --output text 2>/dev/null || echo "UNKNOWN")
 
           HIGH_COUNT=$(aws dynamodb get-item \
             --table-name securegateway-scans \
-            --key "{\"scanId\": {\"S\": \"$SCAN_ID\"}}" \
+            --key "{\"scanId\":{\"S\":\"$SCAN_ID\"}}" \
             --query 'Item.high_count.N' \
             --output text 2>/dev/null || echo "0")
 
           echo "Overall status: $RESULT"
           echo "HIGH findings: $HIGH_COUNT"
-          echo "Full report available on the PR comment"
 
-          if [ "$RESULT" = "failed" ]; then           
+          if [ "$RESULT" = "failed" ]; then
             echo "Security scan FAILED — merge blocked"
             exit 1
           fi
