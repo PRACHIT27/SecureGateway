@@ -1,0 +1,152 @@
+name: Deploy SecureGate
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy-infrastructure:
+    runs-on: ubuntu-latest
+    outputs:
+      ecr_sast_uri: ${{ steps.tf-outputs.outputs.ecr_sast_uri }}
+      ecr_pentest_uri: ${{ steps.tf-outputs.outputs.ecr_pentest_uri }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: cd terraform && terraform init
+
+      - name: Import existing resources
+        run: |
+          cd terraform
+          terraform import aws_dynamodb_table.scans securegateway-scans || true
+          terraform import aws_dynamodb_table.config securegateway-config || true
+          terraform import aws_ecr_repository.sast_scanner securegateway/sast-scanner || true
+          terraform import aws_ecr_repository.pentest_worker securegateway/pentest-worker || true
+          terraform import aws_ecr_repository.client_scans securegateway/client-scans || true
+          terraform import aws_s3_bucket.reports securegateway-reports-547846986520 || true
+          terraform import aws_secretsmanager_secret.github_token securegateway-github-token || true
+          terraform import aws_cloudwatch_log_group.sast /ecs/securegateway/sast-worker || true
+          terraform import aws_cloudwatch_log_group.pentest /ecs/securegateway/pentest-worker || true
+          terraform import aws_lambda_function.trigger securegateway-trigger || true
+          terraform import aws_lambda_function.severity_check securegateway-severity-check || true
+          terraform import aws_lambda_function.results securegateway-results || true
+          terraform import aws_cloudwatch_log_group.lambda_trigger /aws/lambda/securegateway-trigger || true
+          terraform import aws_cloudwatch_log_group.lambda_severity /aws/lambda/securegateway-severity-check || true
+          terraform import aws_cloudwatch_log_group.lambda_results /aws/lambda/securegateway-results || true
+          terraform destroy -auto-approve || true
+
+      - name: Terraform Apply
+        run: cd terraform && terraform apply -auto-approve
+
+      - name: Get Terraform outputs
+        id: tf-outputs
+        run: |
+          cd terraform
+          echo "ecr_sast_uri=$(terraform output -raw ecr_sast_uri)" >> $GITHUB_OUTPUT
+          echo "ecr_pentest_uri=$(terraform output -raw ecr_pentest_uri)" >> $GITHUB_OUTPUT
+
+      - name: Store GitHub token in Secrets Manager
+        run: |
+          aws secretsmanager put-secret-value \
+            --secret-id securegateway-github-token \
+            --secret-string "${{ secrets.GH_SECRET }}"
+
+  deploy-lambdas:
+    needs: deploy-infrastructure
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Deploy trigger Lambda
+        run: |
+          cd lambdas/trigger
+          npm install --production
+          zip -r function.zip .
+          aws lambda update-function-code \
+            --function-name securegateway-trigger \
+            --zip-file fileb://function.zip
+
+      - name: Deploy severity-check Lambda
+        run: |
+          cd lambdas/severity-check
+          npm install --production
+          zip -r function.zip .
+          aws lambda update-function-code \
+            --function-name securegateway-severity-check \
+            --zip-file fileb://function.zip
+
+      - name: Deploy results Lambda
+        run: |
+          cd lambdas/results
+          npm install --production
+          zip -r function.zip .
+          aws lambda update-function-code \
+            --function-name securegateway-results \
+            --zip-file fileb://function.zip
+
+  build-containers:
+    needs: deploy-infrastructure
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region us-east-1 | \
+            docker login --username AWS \
+            --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+
+      - name: Build and push SAST container
+        run: |
+          docker build -t securegateway-sast ./containers/sast-worker
+          docker tag securegateway-sast:latest \
+            ${{ needs.deploy-infrastructure.outputs.ecr_sast_uri }}:latest
+          docker push \
+            ${{ needs.deploy-infrastructure.outputs.ecr_sast_uri }}:latest
+
+      - name: Build and push pentest container
+        run: |
+          docker build -t securegateway-pentest ./containers/pentest-worker
+          docker tag securegateway-pentest:latest \
+            ${{ needs.deploy-infrastructure.outputs.ecr_pentest_uri }}:latest
+          docker push \
+            ${{ needs.deploy-infrastructure.outputs.ecr_pentest_uri }}:latest

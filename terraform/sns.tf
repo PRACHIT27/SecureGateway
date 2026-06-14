@@ -6,9 +6,14 @@ resource "aws_sns_topic" "alerts" {
   tags = { Name = "SecureGate Alerts" }
 }
 
-# Email subscription — update this to your email before applying
-resource "aws_sns_topic_subscription" "email" {
+resource "aws_sns_topic_subscription" "email_parishi" {
   topic_arn = aws_sns_topic.alerts.arn
   protocol  = "email"
-  endpoint  = "prachit@example.com" # TODO: replace with your email
+  endpoint  = "shah.parish@northeastern.edu"
+}
+
+resource "aws_sns_topic_subscription" "email_prachit" {
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "email"
+  endpoint  = "tupe.p@northeastern.edu"
 }

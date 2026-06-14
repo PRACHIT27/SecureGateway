@@ -10,14 +10,22 @@ export const handler = async (event) => {
 
   let body;
   try {
-    body = JSON.parse(event.body || JSON.stringify(event));
+    // Fix 10: Improved JSON parsing logic
+    if (typeof event.body === 'string') {
+      body = JSON.parse(event.body);
+    } else if (typeof event.body === 'object' && event.body !== null) {
+      body = event.body;
+    } else {
+      body = event;
+    }
   } catch (e) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) };
   }
 
-  const { imageUri, prNumber, commitSha, repo } = body;
+  const { imageUri, prNumber, commitSha, repo, repoFullName } = body; 
+  const repoValue = repo || repoFullName;
 
-  if (!commitSha || !repo) {
+  if (!commitSha || !repoValue) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Missing commitSha or repo' }) };
   }
 
@@ -28,16 +36,27 @@ export const handler = async (event) => {
     Key: { scanId: commitSha }
   }));
 
-  if (existing.Item && existing.Item.status === 'complete') {
-    console.log('Cache hit — returning existing result');
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        scanId: commitSha,
-        status: 'cached',
-        message: 'Scan already completed for this commit'
-      })
-    };
+  // Fix 8: Validate threshold on cache hit
+  if (existing.Item && (existing.Item.overall_status === 'complete' || existing.Item.status === 'complete')) {
+    console.log('Cache hit — checking if threshold has changed');
+    const config = await dynamo.send(new GetCommand({
+      TableName: process.env.CONFIG_TABLE,
+      Key: { configKey: 'pentest_skip_threshold' }
+    }));
+    const currentThreshold = config.Item ? parseInt(config.Item.value) : 3;
+    
+    if (existing.Item.threshold === currentThreshold) {
+      console.log('Cache hit — returning existing result');
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          scanId: commitSha,
+          status: 'cached',
+          message: 'Scan already completed for this commit'
+        })
+      };
+    }
+    console.log('Threshold changed — re-evaluating scan');
   }
 
   // Read severity threshold from config table
@@ -57,7 +76,7 @@ export const handler = async (event) => {
       scanId: commitSha,
       imageUri: imageUri || 'unknown',
       prNumber: String(prNumber || '0'),
-      repo,
+      repo: repoValue,
       status: 'pending',
       threshold,
       timestamp: new Date().toISOString(),
@@ -73,7 +92,7 @@ export const handler = async (event) => {
       scanId: commitSha,
       imageUri,
       prNumber: String(prNumber || '0'),
-      repo
+      repo: repoValue
     })
   }));
 
