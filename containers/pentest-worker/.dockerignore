@@ -1,0 +1,6 @@
+node_modules
+*.log
+.dockerignore
+Readme.md
+test-vulnerable.js   # sast-worker only
+test-target.js       # pentest-worker only
