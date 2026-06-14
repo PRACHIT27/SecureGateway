@@ -22,9 +22,10 @@ export const handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) };
   }
 
-  const { imageUri, prNumber, commitSha, repo } = body;
+  const { imageUri, prNumber, commitSha, repo, repoFullName } = body; 
+  const repoValue = repo || repoFullName;
 
-  if (!commitSha || !repo) {
+  if (!commitSha || !repoValue) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Missing commitSha or repo' }) };
   }
 
@@ -36,7 +37,7 @@ export const handler = async (event) => {
   }));
 
   // Fix 8: Validate threshold on cache hit
-  if (existing.Item && existing.Item.status === 'complete') {
+  if (existing.Item && (existing.Item.overall_status === 'complete' || existing.Item.status === 'complete')) {
     console.log('Cache hit — checking if threshold has changed');
     const config = await dynamo.send(new GetCommand({
       TableName: process.env.CONFIG_TABLE,
@@ -75,7 +76,7 @@ export const handler = async (event) => {
       scanId: commitSha,
       imageUri: imageUri || 'unknown',
       prNumber: String(prNumber || '0'),
-      repo,
+      repo: repoValue,
       status: 'pending',
       threshold,
       timestamp: new Date().toISOString(),
@@ -91,7 +92,7 @@ export const handler = async (event) => {
       scanId: commitSha,
       imageUri,
       prNumber: String(prNumber || '0'),
-      repo
+      repo: repoValue
     })
   }));
 
