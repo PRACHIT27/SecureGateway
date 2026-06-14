@@ -46,7 +46,7 @@ jobs:
           terraform import aws_lambda_function.trigger securegateway-trigger || true
           terraform import aws_lambda_function.severity_check securegateway-severity-check || true
           terraform import aws_lambda_function.results securegateway-results || true
-	  terraform import aws_cloudwatch_log_group.lambda_trigger /aws/lambda/securegateway-trigger || true
+          terraform import aws_cloudwatch_log_group.lambda_trigger /aws/lambda/securegateway-trigger || true
           terraform import aws_cloudwatch_log_group.lambda_severity /aws/lambda/securegateway-severity-check || true
           terraform import aws_cloudwatch_log_group.lambda_results /aws/lambda/securegateway-results || true
           terraform destroy -auto-approve || true
