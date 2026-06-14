@@ -23,6 +23,9 @@ on:
       aws-secret-key:
         description: AWS secret access key for ECR push
         required: true
+      aws-session-token:                             
+        description: AWS session token for ECR push
+        required: true
 
 jobs:
   security-scan:
@@ -38,6 +41,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.aws-access-key }}
           aws-secret-access-key: ${{ secrets.aws-secret-key }}
+          aws-session-token: ${{ secrets.aws-session-token }}  
           aws-region: us-east-1
 
       - name: Login to ECR
@@ -107,12 +111,12 @@ jobs:
             STATUS=$(aws dynamodb get-item \
               --table-name securegateway-scans \
               --key "{\"scanId\": {\"S\": \"$SCAN_ID\"}}" \
-              --query 'Item.status.S' \
+              --query 'Item.overall_status.S' \         
               --output text 2>/dev/null || echo "PENDING")
 
             echo "T+${i}0s: $STATUS"
 
-            if [ "$STATUS" = "complete" ] || [ "$STATUS" = "failed" ]; then
+            if [ "$STATUS" = "complete" ] || [ "$STATUS" = "failed" ]; then 
               echo "Scan finished with status: $STATUS"
               break
             fi
@@ -143,7 +147,7 @@ jobs:
           echo "HIGH findings: $HIGH_COUNT"
           echo "Full report available on the PR comment"
 
-          if [ "$RESULT" = "FAIL" ]; then
+          if [ "$RESULT" = "failed" ]; then           
             echo "Security scan FAILED — merge blocked"
             exit 1
           fi
