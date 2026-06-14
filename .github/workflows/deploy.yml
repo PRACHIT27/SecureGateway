@@ -43,6 +43,9 @@ jobs:
           terraform import aws_secretsmanager_secret.github_token securegateway-github-token || true
           terraform import aws_cloudwatch_log_group.sast /ecs/securegateway/sast-worker || true
           terraform import aws_cloudwatch_log_group.pentest /ecs/securegateway/pentest-worker || true
+          terraform import aws_lambda_function.trigger securegateway-trigger || true
+          terraform import aws_lambda_function.severity_check securegateway-severity-check || true
+          terraform import aws_lambda_function.results securegateway-results || true
           terraform destroy -auto-approve || true
 
       - name: Terraform Apply
