@@ -58,6 +58,11 @@ resource "aws_lambda_function" "trigger" {
 resource "aws_cloudwatch_log_group" "lambda_trigger" {
   name              = "/aws/lambda/${aws_lambda_function.trigger.function_name}"
   retention_in_days = var.cloudwatch_logs_retention_days  # Issue #3: Use variable (30 days default)
+  skip_destroy      = true
+  
+  lifecycle {
+     ignore_changes = [name]
+  }
 }
 
 # ── SEVERITY CHECK LAMBDA ─────────────────────────────────────────
@@ -93,6 +98,11 @@ resource "aws_lambda_function" "severity_check" {
 resource "aws_cloudwatch_log_group" "lambda_severity" {
   name              = "/aws/lambda/${aws_lambda_function.severity_check.function_name}"
   retention_in_days = var.cloudwatch_logs_retention_days  # Issue #3: Use variable (30 days default)
+  skip_destroy      = true
+  
+  lifecycle {
+     ignore_changes = [name]
+  }
 }
 
 resource "aws_lambda_event_source_mapping" "severity_check" {
@@ -147,6 +157,11 @@ resource "aws_lambda_function" "results" {
 resource "aws_cloudwatch_log_group" "lambda_results" {
   name              = "/aws/lambda/${aws_lambda_function.results.function_name}"
   retention_in_days = var.cloudwatch_logs_retention_days  # Issue #3: Use variable (30 days default)
+  skip_destroy      = true
+  
+  lifecycle {
+     ignore_changes = [name]
+  }
 }
 
 resource "aws_lambda_event_source_mapping" "results" {
